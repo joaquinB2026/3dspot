@@ -1,14 +1,19 @@
 package com.galaxy.dspot
 
 import android.Manifest
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Camera
 import android.net.Uri
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.*
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -25,16 +30,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var overlayLayout: FrameLayout
 
     private var playerPanel: View? = null
-    private var bluetoothPanel: View? = null
+    private var playlistPanel: View? = null
     private var searchPanel: View? = null
+    private var loginPanel: View? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private var isPlaying = false
     private var trackUpdateRunnable: Runnable? = null
+    private var isConnected = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN)
 
         spotify = SpotifyManager(this)
         btManager = BTManager(this)
@@ -42,21 +51,18 @@ class MainActivity : AppCompatActivity() {
         rootLayout = FrameLayout(this)
         setContentView(rootLayout)
 
+        // OpenGL background
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(2)
         renderer = GalaxyRenderer(this)
         glView.setRenderer(renderer)
         glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         rootLayout.addView(glView, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
         overlayLayout = FrameLayout(this)
         rootLayout.addView(overlayLayout, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
         setupGestureControls()
         requestPermissions()
@@ -74,88 +80,290 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleCallback(uri: Uri) {
-        if (spotify.handleCallback(uri)) {
+        spotify.handleCallback(uri) { success ->
             handler.post {
-                Toast.makeText(this, "✅ Spotify connected!", Toast.LENGTH_SHORT).show()
-                startTrackUpdates()
+                if (success) {
+                    isConnected = true
+                    renderer.beatPulse = 3f
+                    showToast3D("✅ Spotify conectado!")
+                    startTrackUpdates()
+                    loginPanel?.let { dismissPanel(it); loginPanel = null }
+                    // Auto-open player after login
+                    handler.postDelayed({ if (playerPanel == null) showPlayerPanel() }, 600)
+                } else {
+                    showToast3D("❌ Error al conectar con Spotify")
+                }
             }
         }
     }
 
+    // ─── HUD ─────────────────────────────────────────────────────────
     private fun buildHUD() {
-        val navBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(0xCC0A0A1E.toInt())
-            gravity = Gravity.CENTER
-        }
-        val navParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, dpToPx(64)
-        ).apply { gravity = Gravity.BOTTOM }
-
-        navBar.addView(makeNavButton("🎵", "Music") { togglePlayerPanel() })
-        navBar.addView(makeNavButton("📡", "Devices") { toggleBluetoothPanel() })
-        navBar.addView(makeNavButton("🔍", "Search") { toggleSearchPanel() })
-        navBar.addView(makeNavButton("🔑", "Login") { loginSpotify() })
-        overlayLayout.addView(navBar, navParams)
-
+        // Top title
         val title = TextView(this).apply {
             text = "3DSPOT"
-            textSize = 22f
+            textSize = 26f
             setTextColor(0xFFFFFFFF.toInt())
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-            alpha = 0.8f
-            setPadding(dpToPx(20), 0, 0, 0)
+            alpha = 0.9f
+            setPadding(dp(20), 0, 0, 0)
+            // Neon green shadow
+            setShadowLayer(12f, 0f, 0f, 0xFF1DB954.toInt())
         }
-        val titleParams = FrameLayout.LayoutParams(
+        overlayLayout.addView(title, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; topMargin = dpToPx(48) }
-        overlayLayout.addView(title, titleParams)
+            FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP or Gravity.START; topMargin = dp(48)
+        })
+
+        // Bottom nav — glassmorphism pill
+        val navBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(0xCC050518.toInt())
+            gravity = Gravity.CENTER
+            elevation = 24f
+        }
+        navBar.addView(makeNavBtn("🎵", "Música") { togglePlayerPanel() })
+        navBar.addView(makeNavBtn("📋", "Listas") { togglePlaylistPanel() })
+        navBar.addView(makeNavBtn("🔍", "Buscar") { toggleSearchPanel() })
+        navBar.addView(makeNavBtn("🔑", "Login") { toggleLoginPanel() })
+
+        overlayLayout.addView(navBar, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, dp(72)).apply {
+            gravity = Gravity.BOTTOM
+        })
     }
 
-    private fun makeNavButton(emoji: String, label: String, onClick: () -> Unit): LinearLayout {
+    private fun makeNavBtn(emoji: String, label: String, onClick: () -> Unit): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-            setOnClickListener { onClick() }
-            addView(TextView(context).apply { text = emoji; textSize = 22f; gravity = Gravity.CENTER })
-            addView(TextView(context).apply { text = label; textSize = 9f; setTextColor(0xAAFFFFFF.toInt()); gravity = Gravity.CENTER })
-        }
-    }
-
-    private fun togglePlayerPanel() {
-        if (playerPanel?.parent != null) { overlayLayout.removeView(playerPanel); playerPanel = null }
-        else { playerPanel = buildPlayerPanel() }
-    }
-
-    private fun buildPlayerPanel(): View {
-        val panel = buildDraggablePanel(dpToPx(20), dpToPx(120), dpToPx(340), dpToPx(220))
-        val trackName = panel.findViewWithTag<TextView>("track_name")
-        val artistName = panel.findViewWithTag<TextView>("artist_name")
-        val btnPlay = panel.findViewWithTag<Button>("btn_play")
-        val btnNext = panel.findViewWithTag<Button>("btn_next")
-        val btnPrev = panel.findViewWithTag<Button>("btn_prev")
-
-        btnPlay?.setOnClickListener {
-            spotify.playPause(isPlaying) { success ->
-                if (success) { isPlaying = !isPlaying; handler.post { btnPlay.text = if (isPlaying) "⏸" else "▶️" } }
+            setOnClickListener {
+                renderer.beatPulse = 1.5f
+                onClick()
             }
+            addView(TextView(context).apply {
+                text = emoji; textSize = 24f; gravity = Gravity.CENTER
+            })
+            addView(TextView(context).apply {
+                text = label; textSize = 9f
+                setTextColor(0x99FFFFFF.toInt()); gravity = Gravity.CENTER
+            })
         }
-        btnNext?.setOnClickListener { spotify.skipNext {} }
-        btnPrev?.setOnClickListener { spotify.skipPrevious {} }
+    }
 
+    // ─── Panel management ────────────────────────────────────────────
+    private fun togglePlayerPanel() {
+        if (playerPanel?.parent != null) { dismissPanel(playerPanel!!); playerPanel = null }
+        else showPlayerPanel()
+    }
+
+    private fun showPlayerPanel() {
+        playerPanel = buildPlayerPanel()
+    }
+
+    private fun togglePlaylistPanel() {
+        if (playlistPanel?.parent != null) { dismissPanel(playlistPanel!!); playlistPanel = null }
+        else { playlistPanel = buildPlaylistPanel() }
+    }
+
+    private fun toggleSearchPanel() {
+        if (searchPanel?.parent != null) { dismissPanel(searchPanel!!); searchPanel = null }
+        else { searchPanel = buildSearchPanel() }
+    }
+
+    private fun toggleLoginPanel() {
+        if (loginPanel?.parent != null) { dismissPanel(loginPanel!!); loginPanel = null }
+        else { loginPanel = buildLoginPanel() }
+    }
+
+    // ─── 3D Panel base ───────────────────────────────────────────────
+    private fun make3DPanel(
+        leftMargin: Int, topMargin: Int, width: Int, height: Int,
+        rotY: Float = -8f, title: String,
+        buildContent: (LinearLayout) -> Unit
+    ): View {
+        val container = FrameLayout(this)
+        container.elevation = 16f
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xEA06061A.toInt())
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+        }
+
+        // Glowing top border
+        val topBorder = View(this).apply {
+            setBackgroundColor(0xFF1DB954.toInt())
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(2))
+        }
+        panel.addView(topBorder)
+
+        // Title row
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40))
+            lp.setMargins(0, dp(6), 0, dp(10))
+            layoutParams = lp
+        }
+        titleRow.addView(TextView(this).apply {
+            text = title; textSize = 14f
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setShadowLayer(8f, 0f, 0f, 0xFF1DB954.toInt())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        // Close button
+        titleRow.addView(TextView(this).apply {
+            text = "✕"; textSize = 16f
+            setTextColor(0x88FFFFFF.toInt())
+            setPadding(dp(8), 0, 0, 0)
+            setOnClickListener {
+                val p = container.parent
+                if (p is ViewGroup) {
+                    dismissPanel(container)
+                    when (title) {
+                        "🎵 Reproduciendo" -> playerPanel = null
+                        "📋 Mis Playlists" -> playlistPanel = null
+                        "🔍 Buscar" -> searchPanel = null
+                        "🔑 Conectar Spotify" -> loginPanel = null
+                    }
+                }
+            }
+        })
+        panel.addView(titleRow)
+
+        buildContent(panel)
+
+        container.addView(panel, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        val params = FrameLayout.LayoutParams(width, height).apply {
+            this.leftMargin = leftMargin; this.topMargin = topMargin
+        }
+
+        // Apply 3D tilt
+        container.rotationY = rotY
+        container.cameraDistance = 8000f * resources.displayMetrics.density
+
+        makeDraggable3D(container)
+        overlayLayout.addView(container, params)
+
+        // Entrance animation
+        container.alpha = 0f
+        container.scaleX = 0.7f; container.scaleY = 0.7f
+        container.animate().alpha(1f).scaleX(1f).scaleY(1f)
+            .setDuration(350).setInterpolator(OvershootInterpolator(1.2f)).start()
+
+        return container
+    }
+
+    private fun dismissPanel(view: View) {
+        view.animate().alpha(0f).scaleX(0.7f).scaleY(0.7f)
+            .setDuration(220).setInterpolator(DecelerateInterpolator())
+            .withEndAction { (view.parent as? ViewGroup)?.removeView(view) }
+            .start()
+    }
+
+    // ─── Player Panel ────────────────────────────────────────────────
+    private fun buildPlayerPanel(): View {
+        var trackNameTv: TextView? = null
+        var artistTv: TextView? = null
+        var btnPlay: TextView? = null
+        var albumArtHolder: FrameLayout? = null
+
+        val panel = make3DPanel(dp(16), dp(110), dp(340), dp(240), -6f, "🎵 Reproduciendo") { content ->
+
+            // Album art placeholder
+            albumArtHolder = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(64), dp(64)).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL; setMargins(0, 0, 0, dp(8))
+                }
+            }
+            val albumArt = View(this).apply {
+                setBackgroundColor(0xFF1DB954.toInt())
+                layoutParams = FrameLayout.LayoutParams(dp(64), dp(64))
+            }
+            albumArtHolder!!.addView(albumArt)
+
+            val artLabel = TextView(this).apply {
+                text = "♫"; textSize = 28f
+                setTextColor(0xFF000000.toInt())
+                gravity = Gravity.CENTER
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            }
+            albumArtHolder!!.addView(artLabel)
+            content.addView(albumArtHolder)
+
+            // Track info
+            trackNameTv = TextView(this).apply {
+                text = if (isConnected) "Cargando..." else "No conectado"
+                textSize = 16f; setTextColor(0xFFFFFFFF.toInt())
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER; maxLines = 1
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            content.addView(trackNameTv)
+
+            artistTv = TextView(this).apply {
+                text = if (isConnected) "" else "Login para conectar Spotify"
+                textSize = 12f; setTextColor(0xBB1DB954.toInt())
+                gravity = Gravity.CENTER; maxLines = 1
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                lp.setMargins(0, dp(2), 0, dp(12)); layoutParams = lp
+            }
+            content.addView(artistTv)
+
+            // Controls row
+            val controls = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+
+            fun controlBtn(txt: String, isMain: Boolean, action: () -> Unit): TextView {
+                return TextView(this).apply {
+                    text = txt; textSize = if (isMain) 28f else 22f; gravity = Gravity.CENTER
+                    setTextColor(if (isMain) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                    setBackgroundColor(if (isMain) 0xFF1DB954.toInt() else 0x33FFFFFF.toInt())
+                    val size = if (isMain) dp(60) else dp(50)
+                    layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                        setMargins(dp(6), 0, dp(6), 0)
+                    }
+                    setOnClickListener { renderer.beatPulse = 2f; action() }
+                }
+            }
+
+            val btnPrev = controlBtn("⏮", false) { spotify.skipPrevious {} }
+            btnPlay = controlBtn(if (isPlaying) "⏸" else "▶", true) {
+                spotify.playPause(isPlaying) { ok ->
+                    if (ok) { isPlaying = !isPlaying; handler.post { btnPlay?.text = if (isPlaying) "⏸" else "▶" } }
+                }
+            }
+            val btnNext = controlBtn("⏭", false) { spotify.skipNext {} }
+
+            controls.addView(btnPrev); controls.addView(btnPlay); controls.addView(btnNext)
+            content.addView(controls)
+        }
+
+        // Fetch current track
         spotify.getCurrentTrack { json ->
             json?.let {
                 try {
-                    val item = it.optJSONObject("item")
-                    val name = item?.optString("name") ?: "Unknown"
-                    val artist = item?.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: ""
+                    val item = it.optJSONObject("item") ?: return@let
+                    val name = item.optString("name", "Desconocido")
+                    val artist = item.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: ""
                     isPlaying = it.optBoolean("is_playing", false)
                     handler.post {
-                        trackName?.text = name
-                        artistName?.text = artist
-                        btnPlay?.text = if (isPlaying) "⏸" else "▶️"
+                        trackNameTv?.text = name; artistTv?.text = artist
+                        btnPlay?.text = if (isPlaying) "⏸" else "▶"
+                        renderer.beatPulse = 1f
                     }
                 } catch (e: Exception) {}
             }
@@ -163,236 +371,110 @@ class MainActivity : AppCompatActivity() {
         return panel
     }
 
-    private fun toggleBluetoothPanel() {
-        if (bluetoothPanel?.parent != null) { overlayLayout.removeView(bluetoothPanel); bluetoothPanel = null }
-        else { bluetoothPanel = buildBluetoothPanel() }
-    }
+    // ─── Playlist Panel ──────────────────────────────────────────────
+    private fun buildPlaylistPanel(): View {
+        var listLayout: LinearLayout? = null
 
-    private fun buildBluetoothPanel(): View {
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xEE0D0D20.toInt())
-            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
-        }
-        val params = FrameLayout.LayoutParams(dpToPx(300), dpToPx(350)).apply {
-            leftMargin = dpToPx(40); topMargin = dpToPx(130)
-        }
-        panel.addView(makePanelTitle("📡 Bluetooth Devices"))
-
-        val devices = btManager.getPairedDevices()
-        if (devices.isEmpty()) {
-            panel.addView(TextView(this).apply {
-                text = "No paired devices found"
-                setTextColor(0xAAFFFFFF.toInt()); textSize = 13f
-                setPadding(0, dpToPx(12), 0, 0)
-            })
-        } else {
-            devices.forEach { device ->
-                val connected = btManager.isConnected(device)
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setBackgroundColor(if (connected) 0x224F8AFF.toInt() else 0x11FFFFFF.toInt())
-                    setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8))
-                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                    lp.setMargins(0, dpToPx(4), 0, dpToPx(4)); layoutParams = lp
-                }
-                row.addView(TextView(this).apply {
-                    text = "${btManager.getDeviceType(device)} ${btManager.getDeviceName(device)}"
-                    setTextColor(0xFFFFFFFF.toInt()); textSize = 13f
+        val panel = make3DPanel(dp(20), dp(120), dp(330), dp(360), 6f, "📋 Mis Playlists") { content ->
+            if (!isConnected) {
+                content.addView(TextView(this).apply {
+                    text = "Conecta Spotify primero 🔑"; textSize = 13f
+                    setTextColor(0xAAFFFFFF.toInt()); gravity = Gravity.CENTER
+                    setPadding(0, dp(20), 0, 0)
                 })
-                row.addView(TextView(this).apply {
-                    text = if (connected) "● Connected" else "○ Not connected"
-                    setTextColor(if (connected) 0xFF00E5A0.toInt() else 0x88FFFFFF.toInt()); textSize = 11f
-                })
-                panel.addView(row)
+                return@make3DPanel
             }
-        }
-        makeDraggable(panel, params)
-        overlayLayout.addView(panel, params)
-        return panel
-    }
 
-    private fun toggleSearchPanel() {
-        if (searchPanel?.parent != null) { overlayLayout.removeView(searchPanel); searchPanel = null }
-        else { searchPanel = buildSearchPanel() }
-    }
+            val scroll = ScrollView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(290))
+            }
+            listLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            scroll.addView(listLayout)
+            content.addView(scroll)
 
-    private fun buildSearchPanel(): View {
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xEE0D0D20.toInt())
-            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
-        }
-        val params = FrameLayout.LayoutParams(dpToPx(320), dpToPx(400)).apply {
-            leftMargin = dpToPx(30); topMargin = dpToPx(130)
-        }
-        panel.addView(makePanelTitle("🔍 Search Tracks"))
+            val loading = TextView(this).apply {
+                text = "Cargando playlists..."; textSize = 12f
+                setTextColor(0x88FFFFFF.toInt()); gravity = Gravity.CENTER
+            }
+            listLayout!!.addView(loading)
 
-        val searchField = EditText(this).apply {
-            hint = "Song or artist..."
-            setHintTextColor(0x66FFFFFF); setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(0x22FFFFFF)
-            setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(0, dpToPx(8), 0, dpToPx(8)); layoutParams = lp
-        }
-        panel.addView(searchField)
+            spotify.getPlaylists { playlists ->
+                handler.post {
+                    listLayout!!.removeAllViews()
+                    if (playlists.isEmpty()) {
+                        listLayout!!.addView(TextView(this).apply {
+                            text = "Sin playlists"; setTextColor(0x88FFFFFF.toInt())
+                        })
+                        return@post
+                    }
+                    playlists.forEach { pl ->
+                        val name = pl.optString("name", "Playlist")
+                        val tracks = pl.optJSONObject("tracks")?.optInt("total", 0) ?: 0
+                        val uri = pl.optString("uri")
 
-        val resultsLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-
-        val btnSearch = Button(this).apply {
-            text = "Search"
-            setBackgroundColor(0xFF1DB954.toInt()); setTextColor(0xFF000000.toInt())
-            setOnClickListener {
-                val q = searchField.text.toString()
-                if (q.isNotEmpty()) {
-                    spotify.searchTracks(q) { tracks ->
-                        handler.post {
-                            resultsLayout.removeAllViews()
-                            tracks.take(6).forEach { track ->
-                                val name = track.optString("name")
-                                val artist = track.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: ""
-                                val uri = track.optString("uri")
-                                
-                                // ACÁ ESTÁ LA CORRECCIÓN: this@MainActivity en lugar de this
-                                resultsLayout.addView(TextView(this@MainActivity).apply {
-                                    text = "▶ $name\n$artist"
-                                    setTextColor(0xFFFFFFFF.toInt()); textSize = 12f
-                                    setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6))
-                                    setBackgroundColor(0x11FFFFFF)
-                                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                                    lp.setMargins(0, dpToPx(3), 0, dpToPx(3)); layoutParams = lp
-                                    setOnClickListener { spotify.playTrack(uri) {} }
-                                })
+                        val row = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            setBackgroundColor(0x15FFFFFF)
+                            val lp = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT, dp(52))
+                            lp.setMargins(0, dp(3), 0, dp(3)); layoutParams = lp
+                            setPadding(dp(10), 0, dp(10), 0)
+                            setOnClickListener {
+                                spotify.playPlaylist(uri) {}
+                                renderer.beatPulse = 3f
                             }
                         }
-                    }
-                }
-            }
-        }
-        panel.addView(btnSearch)
-        panel.addView(resultsLayout)
-        makeDraggable(panel, params)
-        overlayLayout.addView(panel, params)
-        return panel
-    }
 
-    private fun buildDraggablePanel(x: Int, y: Int, w: Int, h: Int): LinearLayout {
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xEE0D0D20.toInt())
-            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
-        }
-        val params = FrameLayout.LayoutParams(w, h).apply { leftMargin = x; topMargin = y }
-        panel.addView(makePanelTitle("🎵 Now Playing"))
+                        val disc = TextView(this).apply {
+                            text = "💿"; textSize = 22f
+                            layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
+                        }
+                        row.addView(disc)
 
-        val trackName = TextView(this).apply {
-            tag = "track_name"; text = "Not connected"
-            setTextColor(0xFFFFFFFF.toInt()); textSize = 16f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(0, dpToPx(12), 0, dpToPx(4)); layoutParams = lp
-        }
-        panel.addView(trackName)
-
-        val artistName = TextView(this).apply {
-            tag = "artist_name"; text = "Login to Spotify first"
-            setTextColor(0xAA1DB954.toInt()); textSize = 13f
-        }
-        panel.addView(artistName)
-
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(0, dpToPx(20), 0, 0); layoutParams = lp
-        }
-        controls.addView(Button(this).apply {
-            tag = "btn_prev"; text = "⏮"; textSize = 20f
-            setBackgroundColor(0x33FFFFFF); setTextColor(0xFFFFFFFF.toInt())
-            layoutParams = LinearLayout.LayoutParams(dpToPx(70), dpToPx(50)).apply { setMargins(dpToPx(4),0,dpToPx(4),0) }
-        })
-        controls.addView(Button(this).apply {
-            tag = "btn_play"; text = "▶️"; textSize = 20f
-            setBackgroundColor(0xFF1DB954.toInt()); setTextColor(0xFF000000.toInt())
-            layoutParams = LinearLayout.LayoutParams(dpToPx(80), dpToPx(50)).apply { setMargins(dpToPx(4),0,dpToPx(4),0) }
-        })
-        controls.addView(Button(this).apply {
-            tag = "btn_next"; text = "⏭"; textSize = 20f
-            setBackgroundColor(0x33FFFFFF); setTextColor(0xFFFFFFFF.toInt())
-            layoutParams = LinearLayout.LayoutParams(dpToPx(70), dpToPx(50)).apply { setMargins(dpToPx(4),0,dpToPx(4),0) }
-        })
-        panel.addView(controls)
-        makeDraggable(panel, params)
-        overlayLayout.addView(panel, params)
-        return panel
-    }
-
-    private fun makePanelTitle(text: String) = TextView(this).apply {
-        this.text = text; textSize = 14f
-        setTextColor(0xFFFFFFFF.toInt())
-        setTypeface(null, android.graphics.Typeface.BOLD); alpha = 0.9f
-    }
-
-    private fun makeDraggable(view: View, params: FrameLayout.LayoutParams) {
-        var dX = 0f; var dY = 0f
-        view.setOnTouchListener { v, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> { dX = v.x - event.rawX; dY = v.y - event.rawY; true }
-                MotionEvent.ACTION_MOVE -> { v.x = event.rawX + dX; v.y = event.rawY + dY; true }
-                else -> false
-            }
-        }
-    }
-
-    private fun setupGestureControls() {
-        var lastX = 0f; var lastY = 0f
-        glView.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y; true }
-                MotionEvent.ACTION_MOVE -> {
-                    renderer.rotationY += (event.x - lastX) * 0.3f
-                    renderer.rotationX += (event.y - lastY) * 0.3f
-                    lastX = event.x; lastY = event.y; true
-                }
-                else -> false
-            }
-        }
-    }
-
-    private fun loginSpotify() { startActivity(spotify.getAuthIntent()) }
-
-    private fun startTrackUpdates() {
-        trackUpdateRunnable = object : Runnable {
-            override fun run() {
-                spotify.getCurrentTrack { json ->
-                    json?.let {
-                        try {
-                            val item = it.optJSONObject("item") ?: return@let
-                            val name = item.optString("name")
-                            val artist = item.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: ""
-                            isPlaying = it.optBoolean("is_playing", false)
-                            handler.post {
-                                playerPanel?.findViewWithTag<TextView>("track_name")?.text = name
-                                playerPanel?.findViewWithTag<TextView>("artist_name")?.text = artist
+                        val textCol = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                setMargins(dp(10), 0, 0, 0)
                             }
-                        } catch (e: Exception) {}
+                        }
+                        textCol.addView(TextView(this).apply {
+                            text = name; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+                            maxLines = 1; typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        })
+                        textCol.addView(TextView(this).apply {
+                            text = "$tracks canciones"; textSize = 10f; setTextColor(0x881DB954.toInt())
+                        })
+                        row.addView(textCol)
+
+                        row.addView(TextView(this).apply {
+                            text = "▶"; textSize = 14f; setTextColor(0xFF1DB954.toInt())
+                        })
+                        listLayout!!.addView(row)
                     }
                 }
-                handler.postDelayed(this, 5000)
             }
         }
-        handler.post(trackUpdateRunnable!!)
+        return panel
     }
 
-    private fun requestPermissions() {
-        val perms = arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.ACCESS_FINE_LOCATION)
-        val needed = perms.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (needed.isNotEmpty()) ActivityCompat.requestPermissions(this, needed.toTypedArray(), 100)
-    }
+    // ─── Search Panel ────────────────────────────────────────────────
+    private fun buildSearchPanel(): View {
+        var resultsLayout: LinearLayout? = null
 
-    private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
+        val panel = make3DPanel(dp(16), dp(115), dp(340), dp(400), -5f, "🔍 Buscar") { content ->
+            if (!isConnected) {
+                content.addView(TextView(this).apply {
+                    text = "Conecta Spotify primero 🔑"; textSize = 13f
+                    setTextColor(0xAAFFFFFF.toInt()); gravity = Gravity.CENTER
+                    setPadding(0, dp(20), 0, 0)
+                })
+                return@make3DPanel
+            }
 
-    override fun onResume() { super.onResume(); glView.onResume() }
-    override fun onPause() { super.onPause(); glView.onPause() }
-    override fun onDestroy() { super.onDestroy(); trackUpdateRunnable?.let { handler.removeCallbacks(it) } }
-}
+            val searchRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44))
+                lp.setMargins(0, 0, 0, dp(8)); layoutParams = lp
+       
