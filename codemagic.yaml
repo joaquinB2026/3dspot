@@ -2,15 +2,13 @@ workflows:
   android-workflow:
     name: Build 3dspot APK
     max_build_duration: 30
-    environment:
-      groups:
-        - spotify_keys
     scripts:
       - name: Build APK
         script: |
           chmod +x gradlew
-          # Esto reemplaza el texto en tu código por la clave real de forma invisible
+          # Usamos las variables que cargaste en el panel de Codemagic
           sed -i "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" app/src/main/java/com/galaxy/dspot/SpotifyManager.kt
           ./gradlew assembleDebug
     artifacts:
       - app/build/outputs/apk/debug/*.apk
+      
