@@ -15,16 +15,26 @@ import java.security.SecureRandom
 class SpotifyManager(private val context: Context) {
 
     companion object {
+        // Codemagic buscará este string exacto y lo reemplazará por tu secreto
         const val CLIENT_ID = "SPOTIFY_CLIENT_ID_PLACEHOLDER"
+
         const val REDIRECT_URI = "3dspot://callback"
-        const val SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private streaming user-library-read"
+        const val SCOPES = "user-read-playback-state user-modify-playback-state " +
+            "user-read-currently-playing playlist-read-private streaming user-library-read"
         const val AUTH_URL = "https://accounts.spotify.com/authorize"
         const val TOKEN_URL = "https://accounts.spotify.com/api/token"
         const val API_BASE = "https://api.spotify.com/v1"
+        const val PREFS = "3dspot_prefs"
+        const val KEY_TOKEN = "access_token"
+        const val KEY_REFRESH = "refresh_token"
     }
 
     private val client = OkHttpClient()
-    var accessToken: String? = null
+    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    // Load persisted token on startup so user stays logged in
+    var accessToken: String? = prefs.getString(KEY_TOKEN, null)
+    private var refreshToken: String? = prefs.getString(KEY_REFRESH, null)
     private var codeVerifier: String? = null
 
     private fun generateCodeVerifier(): String {
@@ -53,8 +63,12 @@ class SpotifyManager(private val context: Context) {
     }
 
     fun handleCallback(uri: Uri, onResult: (Boolean) -> Unit) {
+        val error = uri.getQueryParameter("error")
+        if (error != null) { onResult(false); return }
+
         val code = uri.getQueryParameter("code")
         if (code == null || codeVerifier == null) { onResult(false); return }
+
         val body = FormBody.Builder()
             .add("grant_type", "authorization_code")
             .add("code", code)
@@ -62,14 +76,52 @@ class SpotifyManager(private val context: Context) {
             .add("client_id", CLIENT_ID)
             .add("code_verifier", codeVerifier!!)
             .build()
+
         val request = Request.Builder().url(TOKEN_URL).post(body).build()
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { onResult(false) }
             override fun onResponse(call: Call, response: Response) {
-                val json = response.body?.string() ?: return onResult(false)
+                val bodyStr = response.body?.string() ?: return onResult(false)
                 try {
-                    accessToken = JSONObject(json).optString("access_token").takeIf { it.isNotEmpty() }
-                    onResult(accessToken != null)
+                    val json = JSONObject(bodyStr)
+                    val token = json.optString("access_token").takeIf { it.isNotEmpty() }
+                    val refresh = json.optString("refresh_token").takeIf { it.isNotEmpty() }
+                    if (token != null) {
+                        accessToken = token
+                        refreshToken = refresh
+                        prefs.edit()
+                            .putString(KEY_TOKEN, token)
+                            .apply { refresh?.let { putString(KEY_REFRESH, it) } }
+                            .apply()
+                        onResult(true)
+                    } else {
+                        onResult(false)
+                    }
+                } catch (e: Exception) { onResult(false) }
+            }
+        })
+    }
+
+    fun refreshAccessToken(onResult: (Boolean) -> Unit) {
+        val rt = refreshToken ?: return onResult(false)
+        val body = FormBody.Builder()
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", rt)
+            .add("client_id", CLIENT_ID)
+            .build()
+        val request = Request.Builder().url(TOKEN_URL).post(body).build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onResult(false) }
+            override fun onResponse(call: Call, response: Response) {
+                val bodyStr = response.body?.string() ?: return onResult(false)
+                try {
+                    val json = JSONObject(bodyStr)
+                    val token = json.optString("access_token").takeIf { it.isNotEmpty() }
+                    if (token != null) {
+                        accessToken = token
+                        prefs.edit().putString(KEY_TOKEN, token).apply()
+                        onResult(true)
+                    } else { onResult(false) }
                 } catch (e: Exception) { onResult(false) }
             }
         })
@@ -85,7 +137,7 @@ class SpotifyManager(private val context: Context) {
 
     fun getPlaylists(callback: (List<JSONObject>) -> Unit) {
         val token = accessToken ?: return callback(emptyList())
-        get("$API_BASE/me/playlists?limit=20", token) { body ->
+        get("$API_BASE/me/playlists?limit=30", token) { body ->
             if (body == null) return@get callback(emptyList())
             try {
                 val items = JSONObject(body).getJSONArray("items")
@@ -150,15 +202,33 @@ class SpotifyManager(private val context: Context) {
         val request = Request.Builder().url(url).addHeader("Authorization", "Bearer $token").build()
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { callback(null) }
-            override fun onResponse(call: Call, response: Response) { callback(response.body?.string()) }
+            override fun onResponse(call: Call, response: Response) {
+                if (response.code == 401) {
+                    refreshAccessToken { ok ->
+                        if (ok) get(url, accessToken ?: return@refreshAccessToken, callback)
+                        else callback(null)
+                    }
+                } else { callback(response.body?.string()) }
+            }
         })
     }
 
     private fun put(url: String, body: RequestBody, token: String, callback: (Boolean) -> Unit) {
-        val request = Request.Builder().url(url).put(body).addHeader("Authorization", "Bearer $token").build()
+        val request = Request.Builder().url(url).put(body)
+            .addHeader("Authorization", "Bearer $token").build()
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { callback(false) }
-            override fun onResponse(call: Call, response: Response) { callback(response.isSuccessful) }
+            override fun onResponse(call: Call, response: Response) {
+                if (response.code == 401) {
+                    refreshAccessToken { ok ->
+                        if (ok) put(url, body, accessToken ?: return@refreshAccessToken, callback)
+                        else callback(false)
+                    }
+                } else { callback(response.isSuccessful) }
+            }
         })
     }
+
+    /** Call on startup: if we have a stored token, verify/refresh it */
+    fun isAlreadyConnected() = accessToken != null
 }
