@@ -11,78 +11,107 @@
             background: transparent; color: white; user-select: none;
         }
         
+        /* Capa para el fondo de imagen estática */
+        #bg-layer {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-size: cover; background-position: center; background-repeat: no-repeat;
+            z-index: -1;
+        }
+
+        /* Botón de configuración arriba a la derecha */
+        #settings-btn {
+            position: absolute; top: 20px; right: 20px;
+            font-size: 28px; cursor: pointer; z-index: 100;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+            transition: transform 0.2s;
+        }
+        #settings-btn:active { transform: rotate(90deg); }
+
         /* Contenedores de la escena 3D */
         #scene { 
-            perspective: 800px; 
-            width: 100vw; height: 100vh; 
+            perspective: 800px; width: 100vw; height: 100vh; 
             position: absolute; top: 0; left: 0;
             display: flex; align-items: center; justify-content: center;
         }
         #world { 
-            transform-style: preserve-3d; 
-            width: 0; height: 0; 
-            transition: transform 0.1s ease-out;
+            transform-style: preserve-3d; width: 0; height: 0; transition: transform 0.1s ease-out;
         }
         
-        /* Diseño de la Ventana (Estilo Mac OS flotante) */
+        /* Diseño de la Ventana */
         .window {
-            position: absolute;
-            width: 320px;
-            background: rgba(10, 10, 20, 0.75);
-            border: 1px solid rgba(29, 185, 84, 0.3);
-            border-radius: 16px;
-            padding: 20px;
+            position: absolute; width: 320px;
+            background: rgba(10, 10, 20, 0.75); border: 1px solid rgba(29, 185, 84, 0.3);
+            border-radius: 16px; padding: 20px;
             box-shadow: 0 20px 50px rgba(0,0,0,0.7), inset 0 0 20px rgba(255,255,255,0.03);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            transform-style: preserve-3d;
-            transition: border-color 0.3s;
-            /* Centro de origen para las transformaciones espaciales */
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            transform-style: preserve-3d; transition: border-color 0.3s;
             left: -160px; top: -120px;
         }
         .window:active { border-color: rgba(29, 185, 84, 0.8); }
         
         /* Barra superior para arrastrar */
         .drag-bar {
-            width: 100%; height: 24px;
-            margin-bottom: 10px; margin-top: -10px;
-            display: flex; align-items: center; justify-content: center;
-            cursor: grab;
+            width: 100%; height: 24px; margin-bottom: 10px; margin-top: -10px;
+            display: flex; align-items: center; justify-content: center; cursor: grab;
         }
         .drag-line { width: 40px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; }
         
-        /* Textos */
+        /* Textos y Controles */
         h2 { font-size: 13px; margin: 0 0 15px 0; color: #1DB954; text-transform: uppercase; letter-spacing: 2px;}
-        .track-title { font-size: 20px; font-weight: bold; margin: 5px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .track-title { font-size: 20px; font-weight: bold; margin: 5px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .track-artist { font-size: 15px; color: rgba(255,255,255,0.6); margin: 0 0 24px 0; }
         
-        /* Botones */
         .controls { display: flex; justify-content: space-between; align-items: center; padding: 0 10px;}
         button {
             background: rgba(255,255,255,0.1); border: none; color: white;
             width: 54px; height: 54px; border-radius: 27px;
             font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-            transition: transform 0.1s, background 0.2s;
         }
         button:active { transform: scale(0.9); }
         .btn-play { background: #1DB954; color: black; width: 68px; height: 68px; border-radius: 34px; font-size: 28px; box-shadow: 0 0 20px rgba(29, 185, 84, 0.4);}
-        .btn-large { width: 100%; border-radius: 12px; height: 48px; background: #1DB954; color: black; font-weight: bold; font-size: 15px; margin-top: 10px; box-shadow: 0 0 15px rgba(29, 185, 84, 0.2); }
-        .btn-secondary { background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); box-shadow: none; margin-bottom: 5px;}
+        .btn-large { width: 100%; border-radius: 12px; height: 48px; background: #1DB954; color: black; font-weight: bold; font-size: 15px; margin-top: 10px; }
+        .btn-secondary { background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 5px;}
+        
+        /* Estilos de inputs */
+        input[type="text"] {
+            width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.5); color: white; margin-bottom: 10px;
+        }
 
-        /* Posiciones iniciales en el espacio 3D */
+        /* Posiciones iniciales */
         #login-panel { transform: translate3d(250px, -40px, -200px) rotateY(-25deg); }
         #player-panel { transform: translate3d(-180px, 40px, 150px) rotateY(15deg); display: none; }
+        #settings-panel { transform: translate3d(0px, 0px, 200px); display: none; z-index: 50;}
     </style>
 </head>
 <body>
 
+<div id="bg-layer"></div>
+<div id="settings-btn" onclick="toggleSettings()">⚙️</div>
+
 <div id="scene">
     <div id="world">
         
+        <div id="settings-panel" class="window">
+            <div class="drag-bar"><div class="drag-line"></div></div>
+            <h2>Fondo Visual</h2>
+            
+            <button class="btn-large btn-secondary" onclick="setGalaxyBg()">🌌 Usar Galaxia 3D</button>
+            <div style="margin: 15px 0; border-top: 1px solid rgba(255,255,255,0.1);"></div>
+            
+            <input type="text" id="bg-url" placeholder="Pegar URL de imagen...">
+            <button class="btn-large btn-secondary" onclick="setUrlBg()">Aplicar URL</button>
+            
+            <button class="btn-large btn-secondary" style="margin-top:10px;" onclick="document.getElementById('filePicker').click()">📁 Elegir foto del celular</button>
+            <input type="file" id="filePicker" accept="image/*" style="display:none" onchange="handleFile(this)">
+            
+            <button class="btn-large" style="margin-top:25px;" onclick="toggleSettings()">✕ Cerrar</button>
+        </div>
+
         <div id="login-panel" class="window">
             <div class="drag-bar"><div class="drag-line"></div></div>
             <h2>Acceso a Sistema</h2>
-            <div class="track-artist">Conecta Spotify para iniciar la terminal holográfica de música.</div>
+            <div class="track-artist">Conecta Spotify para iniciar la terminal holográfica.</div>
             <button class="btn-large btn-secondary" onclick="Android.openSpotifyApp()">1. Abrir Spotify primero</button>
             <button class="btn-large" onclick="Android.login()">2. Conectar Spotify</button>
         </div>
@@ -103,73 +132,76 @@
 </div>
 
 <script>
+    /* ================= GESTIÓN DE FONDOS ================= */
+    function toggleSettings() {
+        let panel = document.getElementById('settings-panel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function setGalaxyBg() {
+        document.getElementById('bg-layer').style.backgroundImage = 'none';
+        if(window.Android) window.Android.toggleGalaxy(true); // Prende las estrellas
+    }
+
+    function setUrlBg() {
+        let url = document.getElementById('bg-url').value;
+        if(url) applyStaticBackground(`url('${url}')`);
+    }
+
+    function handleFile(input) {
+        if (input.files && input.files[0]) {
+            let reader = new FileReader();
+            reader.onload = function(e) { applyStaticBackground(`url('${e.target.result}')`); }
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    function applyStaticBackground(bgValue) {
+        document.getElementById('bg-layer').style.backgroundImage = bgValue;
+        if(window.Android) window.Android.toggleGalaxy(false); // Apaga las estrellas para ahorrar RAM/Batería
+    }
+
     /* ================= ROTACIÓN DEL ENTORNO 3D ================= */
-    let isDraggingWorld = false;
-    let startX, startY;
-    let rotX = 0, rotY = 0;
+    let isDraggingWorld = false; let startX, startY; let rotX = 0, rotY = 0;
 
     document.getElementById('scene').addEventListener('touchstart', e => {
-        if (e.target.closest('.window')) return; // Si toca una ventana, no rotar todo el mundo
-        isDraggingWorld = true;
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
+        if (e.target.closest('.window')) return;
+        isDraggingWorld = true; startX = e.touches[0].clientX; startY = e.touches[0].clientY;
     });
 
     document.getElementById('scene').addEventListener('touchmove', e => {
         if (!isDraggingWorld) return;
-        let dx = e.touches[0].clientX - startX;
-        let dy = e.touches[0].clientY - startY;
-        
-        rotY += dx * 0.4;
-        rotX -= dy * 0.4;
-        
-        if (rotX > 35) rotX = 35;   // Límite arriba
-        if (rotX < -35) rotX = -35; // Límite abajo
-
+        let dx = e.touches[0].clientX - startX; let dy = e.touches[0].clientY - startY;
+        rotY += dx * 0.4; rotX -= dy * 0.4;
+        if (rotX > 35) rotX = 35; if (rotX < -35) rotX = -35;
         document.getElementById('world').style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg)`;
-        
-        // Enviamos la orden a Kotlin para que rote también el motor OpenGL (las estrellas)
-        if(window.Android) { window.Android.rotateGalaxy(dx, dy); }
-        
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
+        if(window.Android) window.Android.rotateGalaxy(dx, dy);
+        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
     });
 
     document.getElementById('scene').addEventListener('touchend', () => isDraggingWorld = false);
 
     /* ================= ARRASTRAR VENTANAS EN EL ESPACIO ================= */
-    let activeWindow = null;
-    let winStartX, winStartY;
-    let initialTransform = '';
+    let activeWindow = null; let winStartX, winStartY; let initialTransform = '';
 
     document.querySelectorAll('.window').forEach(win => {
         win.querySelector('.drag-bar').addEventListener('touchstart', e => {
-            activeWindow = win;
-            winStartX = e.touches[0].clientX;
-            winStartY = e.touches[0].clientY;
+            activeWindow = win; winStartX = e.touches[0].clientX; winStartY = e.touches[0].clientY;
             initialTransform = win.style.transform || window.getComputedStyle(win).transform;
         });
     });
 
     document.addEventListener('touchmove', e => {
         if (!activeWindow) return;
-        let dx = e.touches[0].clientX - winStartX;
-        let dy = e.touches[0].clientY - winStartY;
-        
-        // Sumamos el arrastre a la posición 3D actual
+        let dx = e.touches[0].clientX - winStartX; let dy = e.touches[0].clientY - winStartY;
         activeWindow.style.transform = initialTransform + ` translate3d(${dx}px, ${dy}px, 0px)`;
     });
 
     document.addEventListener('touchend', () => {
-        if (activeWindow) {
-            // Guardamos la nueva posición como permanente al soltar
-            let finalT = activeWindow.style.transform;
-            activeWindow.style.transform = finalT;
-            activeWindow = null;
-        }
+        if (activeWindow) { activeWindow.style.transform = activeWindow.style.transform; activeWindow = null; }
     });
 
-    /* ================= PUENTE DE COMUNICACIÓN CON KOTLIN ================= */
+    /* ================= PUENTE CON KOTLIN ================= */
     function setConnected(isConnected) {
         if(isConnected) {
             document.getElementById('login-panel').style.display = 'none';
@@ -184,5 +216,4 @@
     }
 </script>
 </body>
-  </html>
-
+</html>
