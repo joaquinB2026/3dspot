@@ -31,10 +31,8 @@ class MainActivity : AppCompatActivity() {
     private var trackUpdateRunnable: Runnable? = null
     var isPlaying = false
 
-    // Callback para manejar la foto elegida de la galería
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     
-    // Lanzador nativo para elegir archivos (Galería/Fotos)
     private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val dataString = result.data?.dataString
@@ -61,7 +59,6 @@ class MainActivity : AppCompatActivity() {
         val rootLayout = FrameLayout(this)
         setContentView(rootLayout)
 
-        // 1. Motor Nativo 3D (Fondo de Estrellas)
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(2)
         renderer = GalaxyRenderer(this)
@@ -69,7 +66,6 @@ class MainActivity : AppCompatActivity() {
         glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         rootLayout.addView(glView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
-        // 2. Interfaz 3D de Alto Rendimiento (CSS3D en WebView)
         WebView.setWebContentsDebuggingEnabled(true)
         webView = WebView(this).apply {
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -78,7 +74,6 @@ class MainActivity : AppCompatActivity() {
             settings.allowFileAccess = true
             
             webChromeClient = object : WebChromeClient() {
-                // Esto intercepta cuando tocas <input type="file"> en HTML y abre la galería nativa
                 override fun onShowFileChooser(webView: WebView?, filePathCallback: ValueCallback<Array<Uri>>?, fileChooserParams: FileChooserParams?): Boolean {
                     this@MainActivity.filePathCallback?.onReceiveValue(null)
                     this@MainActivity.filePathCallback = filePathCallback
@@ -177,6 +172,13 @@ class MainActivity : AppCompatActivity() {
         fun rotateGalaxy(dx: Float, dy: Float) { renderer.rotationY += dx * 0.15f; renderer.rotationX += dy * 0.10f }
         
         @JavascriptInterface
+        fun resetGalaxy() {
+            // Devuelve el motor nativo a su posición inicial
+            renderer.rotationX = 20f
+            renderer.rotationY = 0f
+        }
+
+        @JavascriptInterface
         fun toggleGalaxy(show: Boolean) {
             runOnUiThread {
                 if (show) {
@@ -184,7 +186,7 @@ class MainActivity : AppCompatActivity() {
                     glView.onResume()
                 } else {
                     glView.visibility = View.GONE
-                    glView.onPause() // Apaga el motor 3D y ahorra batería
+                    glView.onPause()
                 }
             }
         }
