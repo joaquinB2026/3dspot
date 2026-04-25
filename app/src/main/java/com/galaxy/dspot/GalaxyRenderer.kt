@@ -17,87 +17,103 @@ class GalaxyRenderer(private val context: Context) : GLSurfaceView.Renderer {
     private val projectionMatrix = FloatArray(16)
     private val viewMatrix = FloatArray(16)
     private val mvpMatrix = FloatArray(16)
+    private val tempMatrix = FloatArray(16)
 
     private lateinit var starBuffer: FloatBuffer
     private lateinit var starColorBuffer: FloatBuffer
-    private var starCount = 3000
+    private var starCount = 4000
     private var starProgram = 0
 
     var rotationY = 0f
-    var rotationX = 15f
-    var zoom = -6f
+    var rotationX = 20f
+    var zoom = -7f
     private var time = 0f
 
-    var onFrameCallback: (() -> Unit)? = null
+    // Music reactivity
+    var beatPulse = 0f
+    var bassLevel = 0f
 
-    private val STAR_VERTEX_SHADER = """
+    private val VERT = """
         uniform mat4 uMVPMatrix;
         uniform float uTime;
+        uniform float uPulse;
         attribute vec4 aPosition;
         attribute vec4 aColor;
         varying vec4 vColor;
         void main() {
-            gl_Position = uMVPMatrix * aPosition;
-            float twinkle = 0.6 + 0.4 * sin(uTime * 2.0 + aPosition.x * 10.0);
+            vec4 pos = aPosition;
+            float dist = length(pos.xz);
+            float wave = sin(uTime * 1.5 + dist * 2.0) * 0.04 * uPulse;
+            pos.y += wave;
+            gl_Position = uMVPMatrix * pos;
+            float twinkle = 0.55 + 0.45 * sin(uTime * 3.0 + aPosition.x * 13.7 + aPosition.z * 9.3);
             vColor = vec4(aColor.rgb * twinkle, aColor.a);
-            gl_PointSize = aColor.a * 4.0;
+            float size = aColor.a * 5.5 + uPulse * 1.5;
+            gl_PointSize = size;
         }
     """.trimIndent()
 
-    private val STAR_FRAGMENT_SHADER = """
+    private val FRAG = """
         precision mediump float;
         varying vec4 vColor;
         void main() {
             vec2 coord = gl_PointCoord - vec2(0.5);
             float dist = length(coord);
             if (dist > 0.5) discard;
-            float alpha = 1.0 - smoothstep(0.2, 0.5, dist);
+            float alpha = 1.0 - smoothstep(0.15, 0.5, dist);
             gl_FragColor = vec4(vColor.rgb, vColor.a * alpha);
         }
     """.trimIndent()
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        GLES20.glClearColor(0.01f, 0.01f, 0.05f, 1f)
+        GLES20.glClearColor(0.008f, 0.008f, 0.035f, 1f)
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-        starProgram = buildProgram(STAR_VERTEX_SHADER, STAR_FRAGMENT_SHADER)
+        starProgram = buildProgram(VERT, FRAG)
         generateGalaxy()
     }
 
     private fun generateGalaxy() {
         val positions = FloatArray(starCount * 3)
         val colors = FloatArray(starCount * 4)
-        val arms = 3
-        val random = Random(42)
+        val arms = 4
+        val rng = Random(123)
 
-        for (i in 0 until starCount) {
+        for (i in 0 until starCount - 300) {
             val arm = i % arms
-            val t = random.nextFloat()
-            val angle = (arm * 2f * PI.toFloat() / arms) + t * 4f * PI.toFloat()
-            val radius = t * 4f
-            val spread = random.nextGaussian().toFloat() * 0.3f
+            val t = rng.nextFloat()
+            val angle = (arm * 2f * PI.toFloat() / arms) + t * 5f * PI.toFloat()
+            val radius = 0.3f + t * 4.5f
+            val scatter = nextGaussian(rng).toFloat() * (0.15f + t * 0.35f)
 
-            positions[i * 3] = cos(angle) * radius + spread
-            positions[i * 3 + 1] = (random.nextFloat() - 0.5f) * 0.3f
-            positions[i * 3 + 2] = sin(angle) * radius + spread
+            positions[i * 3 + 0] = cos(angle) * radius + scatter
+            positions[i * 3 + 1] = nextGaussian(rng).toFloat() * 0.18f
+            positions[i * 3 + 2] = sin(angle) * radius + scatter
 
-            val core = 1f - t
-            colors[i * 4] = 0.4f + t * 0.6f
-            colors[i * 4 + 1] = 0.3f + core * 0.4f
-            colors[i * 4 + 2] = 1f
-            colors[i * 4 + 3] = 0.5f + core * 0.5f
+            val core = (1f - t).coerceIn(0f, 1f)
+            val hue = arm.toFloat() / arms
+            // Teal/blue/purple palette matching Spotify dark
+            colors[i * 4 + 0] = 0.1f + hue * 0.3f + t * 0.3f
+            colors[i * 4 + 1] = 0.4f + core * 0.4f
+            colors[i * 4 + 2] = 0.8f + core * 0.2f
+            colors[i * 4 + 3] = 0.4f + core * 0.6f
         }
 
-        for (i in 0 until 200) {
-            val idx = (starCount - 200 + i) * 3
-            val cidx = (starCount - 200 + i) * 4
-            val r = random.nextFloat() * 0.5f
-            val a = random.nextFloat() * 2f * PI.toFloat()
-            positions[idx] = cos(a) * r
-            positions[idx + 1] = (random.nextFloat() - 0.5f) * 0.1f
+        // Bright core cluster
+        for (i in (starCount - 300) until starCount) {
+            val r = rng.nextFloat() * 0.6f
+            val a = rng.nextFloat() * 2f * PI.toFloat()
+            val idx = i * 3
+            val cidx = i * 4
+            positions[idx + 0] = cos(a) * r
+            positions[idx + 1] = (rng.nextFloat() - 0.5f) * 0.15f
             positions[idx + 2] = sin(a) * r
-            colors[cidx] = 1f; colors[cidx+1] = 0.9f; colors[cidx+2] = 1f; colors[cidx+3] = 1f
+            // Spotify green glow for core
+            colors[cidx + 0] = 0.1f + rng.nextFloat() * 0.2f
+            colors[cidx + 1] = 0.7f + rng.nextFloat() * 0.3f
+            colors[cidx + 2] = 0.3f + rng.nextFloat() * 0.3f
+            colors[cidx + 3] = 0.7f + rng.nextFloat() * 0.3f
         }
 
         starBuffer = floatBuffer(positions)
@@ -106,31 +122,32 @@ class GalaxyRenderer(private val context: Context) : GLSurfaceView.Renderer {
 
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        time += 0.016f
+        time += 0.014f
+        beatPulse = (beatPulse * 0.92f)
 
         Matrix.setLookAtM(viewMatrix, 0, 0f, 0f, zoom, 0f, 0f, 0f, 0f, 1f, 0f)
         Matrix.multiplyMM(mvpMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
-        val rotMat = FloatArray(16)
-        Matrix.setRotateM(rotMat, 0, rotationX, 1f, 0f, 0f)
-        Matrix.multiplyMM(mvpMatrix, 0, mvpMatrix, 0, rotMat, 0)
-        Matrix.setRotateM(rotMat, 0, rotationY, 0f, 1f, 0f)
-        Matrix.multiplyMM(mvpMatrix, 0, mvpMatrix, 0, rotMat, 0)
+        Matrix.setRotateM(tempMatrix, 0, rotationX, 1f, 0f, 0f)
+        Matrix.multiplyMM(mvpMatrix, 0, mvpMatrix, 0, tempMatrix, 0)
+        Matrix.setRotateM(tempMatrix, 0, rotationY, 0f, 1f, 0f)
+        Matrix.multiplyMM(mvpMatrix, 0, mvpMatrix, 0, tempMatrix, 0)
 
-        rotationY += 0.1f
+        rotationY += 0.08f
         drawStars()
-        onFrameCallback?.invoke()
     }
 
     private fun drawStars() {
         GLES20.glUseProgram(starProgram)
         val mvpLoc = GLES20.glGetUniformLocation(starProgram, "uMVPMatrix")
         val timeLoc = GLES20.glGetUniformLocation(starProgram, "uTime")
+        val pulseLoc = GLES20.glGetUniformLocation(starProgram, "uPulse")
         val posLoc = GLES20.glGetAttribLocation(starProgram, "aPosition")
         val colLoc = GLES20.glGetAttribLocation(starProgram, "aColor")
 
         GLES20.glUniformMatrix4fv(mvpLoc, 1, false, mvpMatrix, 0)
         GLES20.glUniform1f(timeLoc, time)
+        GLES20.glUniform1f(pulseLoc, 1f + beatPulse)
 
         starBuffer.position(0)
         GLES20.glVertexAttribPointer(posLoc, 3, GLES20.GL_FLOAT, false, 0, starBuffer)
@@ -150,11 +167,9 @@ class GalaxyRenderer(private val context: Context) : GLSurfaceView.Renderer {
     }
 
     private fun buildProgram(vertSrc: String, fragSrc: String): Int {
-        val vert = compileShader(GLES20.GL_VERTEX_SHADER, vertSrc)
-        val frag = compileShader(GLES20.GL_FRAGMENT_SHADER, fragSrc)
         val prog = GLES20.glCreateProgram()
-        GLES20.glAttachShader(prog, vert)
-        GLES20.glAttachShader(prog, frag)
+        GLES20.glAttachShader(prog, compileShader(GLES20.GL_VERTEX_SHADER, vertSrc))
+        GLES20.glAttachShader(prog, compileShader(GLES20.GL_FRAGMENT_SHADER, fragSrc))
         GLES20.glLinkProgram(prog)
         return prog
     }
@@ -166,20 +181,14 @@ class GalaxyRenderer(private val context: Context) : GLSurfaceView.Renderer {
         return shader
     }
 
-    private fun floatBuffer(data: FloatArray): FloatBuffer {
-        return ByteBuffer.allocateDirect(data.size * 4)
-            .order(ByteOrder.nativeOrder())
-            .asFloatBuffer()
-            .apply { put(data); position(0) }
-    }
+    private fun floatBuffer(data: FloatArray): FloatBuffer =
+        ByteBuffer.allocateDirect(data.size * 4).order(ByteOrder.nativeOrder())
+            .asFloatBuffer().apply { put(data); position(0) }
 
-    private fun Random.nextGaussian(): Double {
+    private fun nextGaussian(rng: Random): Double {
         var u: Double; var v: Double; var s: Double
-        do {
-            u = nextDouble() * 2 - 1
-            v = nextDouble() * 2 - 1
-            s = u * u + v * v
-        } while (s >= 1 || s == 0.0)
+        do { u = rng.nextDouble() * 2 - 1; v = rng.nextDouble() * 2 - 1; s = u * u + v * v }
+        while (s >= 1 || s == 0.0)
         return u * sqrt(-2.0 * ln(s) / s)
     }
 }
