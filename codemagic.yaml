@@ -2,20 +2,22 @@ workflows:
   android-workflow:
     name: Build 3dspot APK
     max_build_duration: 30
+    environment:
+      groups:
+        - spotify_keys # <--- ESTO CARGA TUS VARIABLES DEL GRUPO
     scripts:
       - name: Build APK
         script: |
-          # Si los archivos están dentro de una carpeta, entramos a ella. 
-          # Si están en la raíz, esto no hará daño.
-          cd $CM_BUILD_DIR 
+          # Entramos a la subcarpeta del proyecto
+          cd 3dspot
           
-          # Forzamos los permisos del gradlew
-          chmod +x gradlew || true
+          # Damos permisos
+          chmod +x gradlew
           
-          # Corrección del comando SED para que no falle en Codemagic
+          # Reemplazamos el ID. El '' después de -i es vital para que funcione en los servers de Codemagic
           sed -i '' "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" app/src/main/java/com/galaxy/dspot/SpotifyManager.kt
           
-          # Ejecutamos la compilación
+          # Compilamos
           ./gradlew assembleDebug
     artifacts:
-      - app/build/outputs/apk/debug/*.apk
+      - 3dspot/app/build/outputs/apk/debug/*.apk
