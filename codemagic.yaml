@@ -8,16 +8,17 @@ workflows:
     scripts:
       - name: Build APK
         script: |
-          # Forzamos a la máquina a pararse donde está el código
-          cd $FLET_DEST_DIR 2>/dev/null || cd $CM_BUILD_DIR
+          # 1. Buscamos la carpeta que contiene el archivo build.gradle (la raíz real)
+          ROOT_DIR=$(find . -name "build.gradle" -exec dirname {} + | head -n 1)
+          cd "$ROOT_DIR"
           
-          # Buscamos el archivo gradlew esté donde esté y le damos permiso
-          find . -name "gradlew" -exec chmod +x {} +
+          # 2. Damos permisos al gradlew de esa carpeta
+          chmod +x gradlew
           
-          # Buscamos SpotifyManager.kt y reemplazamos el ID
-          find . -name "SpotifyManager.kt" -exec sed -i '' "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" {} +
+          # 3. Inyectamos la llave de Spotify
+          sed -i '' "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" app/src/main/java/com/galaxy/dspot/SpotifyManager.kt
           
-          # Ejecutamos el build buscando el gradlew automáticamente
-          $(find . -name "gradlew") assembleDebug
+          # 4. Ejecutamos el build desde la raíz confirmada
+          ./gradlew assembleDebug
     artifacts:
       - "**/build/outputs/apk/debug/*.apk"
