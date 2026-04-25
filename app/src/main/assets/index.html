@@ -5,119 +5,132 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>3DSPOT</title>
     <style>
+        :root {
+            /* Variables de color de las ventanas modificables */
+            --win-bg: rgba(10, 10, 20, 0.75);
+            --win-border: rgba(29, 185, 84, 0.3);
+        }
+
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { 
             margin: 0; padding: 0; overflow: hidden; 
             background: transparent; color: white; user-select: none;
         }
         
-        /* Capa para el fondo de imagen estática */
         #bg-layer {
             position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
             background-size: cover; background-position: center; background-repeat: no-repeat;
-            z-index: -1;
+            background-attachment: fixed; z-index: -1;
         }
 
-        /* Botón de configuración arriba a la derecha */
-        #settings-btn {
-            position: absolute; top: 20px; right: 20px;
-            font-size: 28px; cursor: pointer; z-index: 100;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
-            transition: transform 0.2s;
+        .top-btn {
+            position: absolute; top: 20px; font-size: 26px; cursor: pointer; z-index: 100;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8); transition: transform 0.2s;
+            background: rgba(0,0,0,0.5); width: 44px; height: 44px; 
+            display: flex; align-items: center; justify-content: center; border-radius: 22px;
         }
+        #settings-btn { right: 20px; }
         #settings-btn:active { transform: rotate(90deg); }
+        #reset-cam-btn { right: 75px; }
+        #reset-cam-btn:active { transform: scale(0.8); }
 
-        /* Contenedores de la escena 3D */
         #scene { 
             perspective: 800px; width: 100vw; height: 100vh; 
-            position: absolute; top: 0; left: 0;
-            display: flex; align-items: center; justify-content: center;
+            position: absolute; top: 0; left: 0; display: flex; align-items: center; justify-content: center;
         }
         #world { 
-            transform-style: preserve-3d; width: 0; height: 0; transition: transform 0.1s ease-out;
+            transform-style: preserve-3d; width: 0; height: 0; transition: transform 0.15s ease-out;
         }
         
-        /* Diseño de la Ventana */
         .window {
-            position: absolute; width: 320px;
-            background: rgba(10, 10, 20, 0.75); border: 1px solid rgba(29, 185, 84, 0.3);
-            border-radius: 16px; padding: 20px;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.7), inset 0 0 20px rgba(255,255,255,0.03);
+            position: absolute; width: 320px; background: var(--win-bg); border: 1px solid var(--win-border);
+            border-radius: 16px; padding: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.7), inset 0 0 20px rgba(255,255,255,0.03);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             transform-style: preserve-3d; transition: border-color 0.3s;
             left: -160px; top: -120px;
         }
         .window:active { border-color: rgba(29, 185, 84, 0.8); }
         
-        /* Barra superior para arrastrar */
         .drag-bar {
-            width: 100%; height: 24px; margin-bottom: 10px; margin-top: -10px;
+            width: 100%; height: 24px; margin-bottom: 5px; margin-top: -10px;
             display: flex; align-items: center; justify-content: center; cursor: grab;
         }
         .drag-line { width: 40px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; }
         
-        /* Textos y Controles */
+        .win-tools {
+            display: flex; justify-content: space-between; margin-bottom: 12px;
+            background: rgba(0,0,0,0.3); border-radius: 8px; padding: 4px;
+        }
+        .win-tools button { background: transparent; color: #1DB954; width: auto; height: 24px; font-size: 12px; padding: 0 8px; border-radius: 4px; }
+
         h2 { font-size: 13px; margin: 0 0 15px 0; color: #1DB954; text-transform: uppercase; letter-spacing: 2px;}
         .track-title { font-size: 20px; font-weight: bold; margin: 5px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .track-artist { font-size: 15px; color: rgba(255,255,255,0.6); margin: 0 0 24px 0; }
         
         .controls { display: flex; justify-content: space-between; align-items: center; padding: 0 10px;}
-        button {
-            background: rgba(255,255,255,0.1); border: none; color: white;
-            width: 54px; height: 54px; border-radius: 27px;
-            font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-        }
+        button { background: rgba(255,255,255,0.1); border: none; color: white; width: 54px; height: 54px; border-radius: 27px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         button:active { transform: scale(0.9); }
         .btn-play { background: #1DB954; color: black; width: 68px; height: 68px; border-radius: 34px; font-size: 28px; box-shadow: 0 0 20px rgba(29, 185, 84, 0.4);}
         .btn-large { width: 100%; border-radius: 12px; height: 48px; background: #1DB954; color: black; font-weight: bold; font-size: 15px; margin-top: 10px; }
         .btn-secondary { background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 5px;}
         
-        /* Estilos de inputs */
-        input[type="text"] {
-            width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
-            background: rgba(0,0,0,0.5); color: white; margin-bottom: 10px;
-        }
-
-        /* Posiciones iniciales */
-        #login-panel { transform: translate3d(250px, -40px, -200px) rotateY(-25deg); }
-        #player-panel { transform: translate3d(-180px, 40px, 150px) rotateY(15deg); display: none; }
-        #settings-panel { transform: translate3d(0px, 0px, 200px); display: none; z-index: 50;}
+        input[type="text"] { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: white; margin-bottom: 10px;}
+        .setting-row { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; font-size: 13px;}
+        input[type="color"] { background: transparent; border: none; height: 30px; width: 50px; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div id="bg-layer"></div>
-<div id="settings-btn" onclick="toggleSettings()">⚙️</div>
+<div id="reset-cam-btn" class="top-btn" onclick="resetCamera()">⌂</div>
+<div id="settings-btn" class="top-btn" onclick="toggleSettings()">⚙️</div>
 
 <div id="scene">
     <div id="world">
         
-        <div id="settings-panel" class="window">
+        <div id="settings-panel" class="window" data-tx="0" data-ty="0" data-tz="200" data-ry="0" data-s="1" style="display: none; z-index: 50;">
             <div class="drag-bar"><div class="drag-line"></div></div>
-            <h2>Fondo Visual</h2>
+            <h2>Configuración</h2>
             
             <button class="btn-large btn-secondary" onclick="setGalaxyBg()">🌌 Usar Galaxia 3D</button>
             <div style="margin: 15px 0; border-top: 1px solid rgba(255,255,255,0.1);"></div>
             
-            <input type="text" id="bg-url" placeholder="Pegar URL de imagen...">
-            <button class="btn-large btn-secondary" onclick="setUrlBg()">Aplicar URL</button>
-            
-            <button class="btn-large btn-secondary" style="margin-top:10px;" onclick="document.getElementById('filePicker').click()">📁 Elegir foto del celular</button>
+            <button class="btn-large btn-secondary" onclick="document.getElementById('filePicker').click()">📁 Fondo desde celular</button>
             <input type="file" id="filePicker" accept="image/*" style="display:none" onchange="handleFile(this)">
             
-            <button class="btn-large" style="margin-top:25px;" onclick="toggleSettings()">✕ Cerrar</button>
+            <div class="setting-row">
+                <span>Ajuste de foto:</span>
+                <button class="btn-secondary" style="width: auto; height: 30px; font-size: 12px;" onclick="toggleBgFit()">Cubrir / Contener</button>
+            </div>
+
+            <div class="setting-row">
+                <span>Color Ventanas:</span>
+                <input type="color" id="win-color-picker" value="#0a0a14" onchange="updateWinColor(this.value)">
+            </div>
+            
+            <button class="btn-large" style="margin-top:15px;" onclick="toggleSettings()">✕ Cerrar</button>
         </div>
 
-        <div id="login-panel" class="window">
+        <div id="login-panel" class="window" data-tx="250" data-ty="-40" data-tz="-200" data-ry="-25" data-s="1">
             <div class="drag-bar"><div class="drag-line"></div></div>
+            <div class="win-tools">
+                <button onclick="modW(this, 's', -0.1)">S-</button><button onclick="modW(this, 's', 0.1)">S+</button>
+                <button onclick="modW(this, 'tz', -50)">Z-</button><button onclick="modW(this, 'tz', 50)">Z+</button>
+                <button onclick="modW(this, 'ry', -15)">↺</button><button onclick="modW(this, 'ry', 15)">↻</button>
+            </div>
             <h2>Acceso a Sistema</h2>
-            <div class="track-artist">Conecta Spotify para iniciar la terminal holográfica.</div>
+            <div class="track-artist">Conecta Spotify para iniciar.</div>
             <button class="btn-large btn-secondary" onclick="Android.openSpotifyApp()">1. Abrir Spotify primero</button>
             <button class="btn-large" onclick="Android.login()">2. Conectar Spotify</button>
         </div>
 
-        <div id="player-panel" class="window">
+        <div id="player-panel" class="window" data-tx="-180" data-ty="40" data-tz="150" data-ry="15" data-s="1" style="display: none;">
             <div class="drag-bar"><div class="drag-line"></div></div>
+            <div class="win-tools">
+                <button onclick="modW(this, 's', -0.1)">S-</button><button onclick="modW(this, 's', 0.1)">S+</button>
+                <button onclick="modW(this, 'tz', -50)">Z-</button><button onclick="modW(this, 'tz', 50)">Z+</button>
+                <button onclick="modW(this, 'ry', -15)">↺</button><button onclick="modW(this, 'ry', 15)">↻</button>
+            </div>
             <h2>Reproduciendo</h2>
             <div class="track-title" id="t-name">Buscando señal...</div>
             <div class="track-artist" id="t-artist">-</div>
@@ -132,40 +145,123 @@
 </div>
 
 <script>
-    /* ================= GESTIÓN DE FONDOS ================= */
+    /* ================= GUARDAR Y CARGAR ESTADO (MEMORIA) ================= */
+    function saveState() {
+        let state = {};
+        // Guardamos las ventanas
+        document.querySelectorAll('.window').forEach(win => {
+            state[win.id] = {
+                tx: win.getAttribute('data-tx'),
+                ty: win.getAttribute('data-ty'),
+                tz: win.getAttribute('data-tz'),
+                ry: win.getAttribute('data-ry'),
+                s: win.getAttribute('data-s')
+            };
+        });
+        // Guardamos la cámara y color
+        state.world = { rx: rotX, ry: rotY };
+        state.color = document.getElementById('win-color-picker').value;
+        
+        localStorage.setItem('3dspot_state', JSON.stringify(state));
+    }
+
+    function loadState() {
+        let saved = localStorage.getItem('3dspot_state');
+        if (saved) {
+            try {
+                let state = JSON.parse(saved);
+                // Restauramos ventanas
+                document.querySelectorAll('.window').forEach(win => {
+                    if (state[win.id]) {
+                        win.setAttribute('data-tx', state[win.id].tx);
+                        win.setAttribute('data-ty', state[win.id].ty);
+                        win.setAttribute('data-tz', state[win.id].tz);
+                        win.setAttribute('data-ry', state[win.id].ry);
+                        win.setAttribute('data-s', state[win.id].s);
+                    }
+                });
+                // Restauramos cámara
+                if (state.world) {
+                    rotX = state.world.rx || 0; rotY = state.world.ry || 0;
+                    document.getElementById('world').style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+                    // Si tienes la cámara rotada al iniciar, avisamos a Kotlin
+                    if(window.Android) window.Android.rotateGalaxy(0, 0); 
+                }
+                // Restauramos color
+                if (state.color) {
+                    document.getElementById('win-color-picker').value = state.color;
+                    updateWinColor(state.color, false);
+                }
+            } catch(e) {}
+        }
+        // Aplicamos físicamente el CSS
+        document.querySelectorAll('.window').forEach(applyTransform);
+    }
+
+    /* ================= INICIALIZACIÓN 3D ================= */
+    function applyTransform(win) {
+        let tx = parseFloat(win.getAttribute('data-tx'));
+        let ty = parseFloat(win.getAttribute('data-ty'));
+        let tz = parseFloat(win.getAttribute('data-tz'));
+        let ry = parseFloat(win.getAttribute('data-ry'));
+        let s = parseFloat(win.getAttribute('data-s'));
+        win.style.transform = `translate3d(${tx}px, ${ty}px, ${tz}px) rotateY(${ry}deg) scale(${s})`;
+    }
+
+    function modW(btn, prop, v) {
+        let win = btn.closest('.window');
+        let current = parseFloat(win.getAttribute(`data-${prop}`));
+        win.setAttribute(`data-${prop}`, current + v);
+        applyTransform(win);
+        saveState(); // Guardar al modificar Z, Escala o Rotación
+    }
+
+    /* ================= FONDOS Y COLORES ================= */
+    let bgFitCover = true;
     function toggleSettings() {
-        let panel = document.getElementById('settings-panel');
-        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        let p = document.getElementById('settings-panel');
+        p.style.display = p.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function toggleBgFit() {
+        bgFitCover = !bgFitCover;
+        document.getElementById('bg-layer').style.backgroundSize = bgFitCover ? 'cover' : 'contain';
+    }
+
+    function updateWinColor(hex, doSave = true) {
+        let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+        document.documentElement.style.setProperty('--win-bg', `rgba(${r}, ${g}, ${b}, 0.75)`);
+        if(doSave) saveState();
     }
 
     function setGalaxyBg() {
         document.getElementById('bg-layer').style.backgroundImage = 'none';
-        if(window.Android) window.Android.toggleGalaxy(true); // Prende las estrellas
-    }
-
-    function setUrlBg() {
-        let url = document.getElementById('bg-url').value;
-        if(url) applyStaticBackground(`url('${url}')`);
+        if(window.Android) window.Android.toggleGalaxy(true);
     }
 
     function handleFile(input) {
         if (input.files && input.files[0]) {
             let reader = new FileReader();
-            reader.onload = function(e) { applyStaticBackground(`url('${e.target.result}')`); }
+            reader.onload = function(e) {
+                document.getElementById('bg-layer').style.backgroundImage = `url('${e.target.result}')`;
+                if(window.Android) window.Android.toggleGalaxy(false);
+            }
             reader.readAsDataURL(input.files[0]);
         }
     }
 
-    function applyStaticBackground(bgValue) {
-        document.getElementById('bg-layer').style.backgroundImage = bgValue;
-        if(window.Android) window.Android.toggleGalaxy(false); // Apaga las estrellas para ahorrar RAM/Batería
-    }
-
-    /* ================= ROTACIÓN DEL ENTORNO 3D ================= */
+    /* ================= CAMARA DEL MUNDO ================= */
     let isDraggingWorld = false; let startX, startY; let rotX = 0, rotY = 0;
 
+    function resetCamera() {
+        rotX = 0; rotY = 0;
+        document.getElementById('world').style.transform = `rotateX(0deg) rotateY(0deg)`;
+        if(window.Android) window.Android.resetGalaxy();
+        saveState();
+    }
+
     document.getElementById('scene').addEventListener('touchstart', e => {
-        if (e.target.closest('.window')) return;
+        if (e.target.closest('.window') || e.target.closest('.top-btn')) return;
         isDraggingWorld = true; startX = e.touches[0].clientX; startY = e.touches[0].clientY;
     });
 
@@ -179,26 +275,34 @@
         startX = e.touches[0].clientX; startY = e.touches[0].clientY;
     });
 
-    document.getElementById('scene').addEventListener('touchend', () => isDraggingWorld = false);
+    // Guardar cámara al soltar
+    document.getElementById('scene').addEventListener('touchend', () => {
+        if(isDraggingWorld) { saveState(); isDraggingWorld = false; }
+    });
 
-    /* ================= ARRASTRAR VENTANAS EN EL ESPACIO ================= */
-    let activeWindow = null; let winStartX, winStartY; let initialTransform = '';
+    /* ================= ARRASTRE DE VENTANAS (X, Y) ================= */
+    let activeWindow = null; let winStartX, winStartY; let startTX, startTY;
 
-    document.querySelectorAll('.window').forEach(win => {
-        win.querySelector('.drag-bar').addEventListener('touchstart', e => {
-            activeWindow = win; winStartX = e.touches[0].clientX; winStartY = e.touches[0].clientY;
-            initialTransform = win.style.transform || window.getComputedStyle(win).transform;
+    document.querySelectorAll('.drag-bar').forEach(bar => {
+        bar.addEventListener('touchstart', e => {
+            activeWindow = bar.closest('.window');
+            winStartX = e.touches[0].clientX; winStartY = e.touches[0].clientY;
+            startTX = parseFloat(activeWindow.getAttribute('data-tx'));
+            startTY = parseFloat(activeWindow.getAttribute('data-ty'));
         });
     });
 
     document.addEventListener('touchmove', e => {
         if (!activeWindow) return;
         let dx = e.touches[0].clientX - winStartX; let dy = e.touches[0].clientY - winStartY;
-        activeWindow.style.transform = initialTransform + ` translate3d(${dx}px, ${dy}px, 0px)`;
+        activeWindow.setAttribute('data-tx', startTX + dx);
+        activeWindow.setAttribute('data-ty', startTY + dy);
+        applyTransform(activeWindow);
     });
 
+    // Guardar ventana al soltar
     document.addEventListener('touchend', () => {
-        if (activeWindow) { activeWindow.style.transform = activeWindow.style.transform; activeWindow = null; }
+        if(activeWindow) { saveState(); activeWindow = null; }
     });
 
     /* ================= PUENTE CON KOTLIN ================= */
@@ -208,12 +312,14 @@
             document.getElementById('player-panel').style.display = 'block';
         }
     }
-
     function updateTrack(name, artist, isPlaying) {
         document.getElementById('t-name').innerText = name;
         document.getElementById('t-artist').innerText = artist;
         document.getElementById('btn-play').innerText = isPlaying ? "⏸" : "▶";
     }
+
+    // CARGAR AL INICIO
+    loadState();
 </script>
 </body>
 </html>
