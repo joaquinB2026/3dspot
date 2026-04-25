@@ -1,6 +1,7 @@
 package com.galaxy.dspot
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.opengl.GLSurfaceView
@@ -10,11 +11,13 @@ import android.os.Looper
 import android.view.View
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
@@ -27,6 +30,24 @@ class MainActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var trackUpdateRunnable: Runnable? = null
     var isPlaying = false
+
+    // Callback para manejar la foto elegida de la galería
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    
+    // Lanzador nativo para elegir archivos (Galería/Fotos)
+    private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val dataString = result.data?.dataString
+            if (dataString != null) {
+                filePathCallback?.onReceiveValue(arrayOf(Uri.parse(dataString)))
+            } else {
+                filePathCallback?.onReceiveValue(null)
+            }
+        } else {
+            filePathCallback?.onReceiveValue(null)
+        }
+        filePathCallback = null
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,10 +76,24 @@ class MainActivity : AppCompatActivity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.allowFileAccess = true
-            webChromeClient = WebChromeClient()
+            
+            webChromeClient = object : WebChromeClient() {
+                // Esto intercepta cuando tocas <input type="file"> en HTML y abre la galería nativa
+                override fun onShowFileChooser(webView: WebView?, filePathCallback: ValueCallback<Array<Uri>>?, fileChooserParams: FileChooserParams?): Boolean {
+                    this@MainActivity.filePathCallback?.onReceiveValue(null)
+                    this@MainActivity.filePathCallback = filePathCallback
+                    try {
+                        fileChooserParams?.createIntent()?.let { fileChooserLauncher.launch(it) }
+                    } catch (e: Exception) {
+                        this@MainActivity.filePathCallback = null
+                        return false
+                    }
+                    return true
+                }
+            }
+
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    // Cuando termina de cargar el HTML, verificamos si ya había sesión
                     if (spotify.isAlreadyConnected()) {
                         notifyWebConnected(true)
                         startTrackUpdates()
@@ -66,12 +101,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            // Conectamos Kotlin con JavaScript
             addJavascriptInterface(WebAppInterface(), "Android")
         }
         rootLayout.addView(webView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-
-        // Cargamos el archivo HTML local que creaste
         webView.loadUrl("file:///android_asset/index.html")
         
         handleIntent(intent)
@@ -111,72 +143,59 @@ class MainActivity : AppCompatActivity() {
                         try {
                             val item = it.optJSONObject("item") ?: return@let
                             isPlaying = it.optBoolean("is_playing", false)
-                            
-                            val trackName = item.optString("name", "Desconocido")
-                            val artistName = item.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: ""
-                            
-                            // Limpiamos los strings para evitar que rompan el JavaScript
-                            val safeTrack = trackName.replace("'", "\\'").replace("\n", " ")
-                            val safeArtist = artistName.replace("'", "\\'").replace("\n", " ")
+                            val trackName = item.optString("name", "Desconocido").replace("'", "\\'").replace("\n", " ")
+                            val artistName = (item.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: "").replace("'", "\\'").replace("\n", " ")
 
                             runOnUiThread {
-                                webView.evaluateJavascript("javascript:updateTrack('$safeTrack', '$safeArtist', $isPlaying);", null)
+                                webView.evaluateJavascript("javascript:updateTrack('$trackName', '$artistName', $isPlaying);", null)
                                 if (isPlaying) renderer.beatPulse = 0.4f
                             }
                         } catch (_: Exception) {}
                     }
                 }
-                handler.postDelayed(this, 5000) // Actualiza cada 5 segundos
+                handler.postDelayed(this, 5000)
             }
         }
         handler.post(trackUpdateRunnable!!)
     }
 
-    // --- PUENTE: Estas funciones son llamadas DESDE el archivo index.html ---
+    // --- PUENTE HTML <-> KOTLIN ---
     inner class WebAppInterface {
         @JavascriptInterface
-        fun login() {
-            runOnUiThread {
-                renderer.beatPulse = 2f
-                startActivity(spotify.getAuthIntent())
-            }
-        }
+        fun login() { runOnUiThread { renderer.beatPulse = 2f; startActivity(spotify.getAuthIntent()) } }
 
         @JavascriptInterface
-        fun playPause() {
-            spotify.playPause(isPlaying) { ok ->
-                if (ok) {
-                    isPlaying = !isPlaying
-                    runOnUiThread { startTrackUpdates() } // Forzamos refresh visual rápido
+        fun playPause() { spotify.playPause(isPlaying) { ok -> if (ok) { isPlaying = !isPlaying; runOnUiThread { startTrackUpdates() } } } }
+
+        @JavascriptInterface
+        fun skipNext() { spotify.skipNext { runOnUiThread { renderer.beatPulse = 2f; startTrackUpdates() } } }
+
+        @JavascriptInterface
+        fun skipPrev() { spotify.skipPrevious { runOnUiThread { renderer.beatPulse = 2f; startTrackUpdates() } } }
+
+        @JavascriptInterface
+        fun rotateGalaxy(dx: Float, dy: Float) { renderer.rotationY += dx * 0.15f; renderer.rotationX += dy * 0.10f }
+        
+        @JavascriptInterface
+        fun toggleGalaxy(show: Boolean) {
+            runOnUiThread {
+                if (show) {
+                    glView.visibility = View.VISIBLE
+                    glView.onResume()
+                } else {
+                    glView.visibility = View.GONE
+                    glView.onPause() // Apaga el motor 3D y ahorra batería
                 }
             }
         }
 
         @JavascriptInterface
-        fun skipNext() { 
-            spotify.skipNext { runOnUiThread { renderer.beatPulse = 2f; startTrackUpdates() } } 
-        }
-
-        @JavascriptInterface
-        fun skipPrev() { 
-            spotify.skipPrevious { runOnUiThread { renderer.beatPulse = 2f; startTrackUpdates() } } 
-        }
-
-        @JavascriptInterface
-        fun rotateGalaxy(dx: Float, dy: Float) {
-            // El usuario está rotando la interfaz web, rotamos la galaxia en la misma dirección
-            renderer.rotationY += dx * 0.15f
-            renderer.rotationX += dy * 0.10f
-        }
-        
-        @JavascriptInterface
         fun openSpotifyApp() {
             runOnUiThread {
                 val pkg = "com.spotify.music"
                 val intent = packageManager.getLaunchIntentForPackage(pkg)
-                if (intent != null) { 
-                    startActivity(intent) 
-                } else {
+                if (intent != null) startActivity(intent) 
+                else {
                     try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))) }
                     catch (_: Exception) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg"))) }
                 }
@@ -184,7 +203,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() { super.onResume(); glView.onResume() }
+    override fun onResume() { super.onResume(); if(glView.visibility == View.VISIBLE) glView.onResume() }
     override fun onPause() { super.onPause(); glView.onPause() }
     override fun onDestroy() { super.onDestroy(); trackUpdateRunnable?.let { handler.removeCallbacks(it) } }
 }
