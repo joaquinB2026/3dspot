@@ -5,10 +5,17 @@ workflows:
     scripts:
       - name: Build APK
         script: |
-          chmod +x gradlew
-          # Usamos las variables que cargaste en el panel de Codemagic
-          sed -i "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" app/src/main/java/com/galaxy/dspot/SpotifyManager.kt
+          # Si los archivos están dentro de una carpeta, entramos a ella. 
+          # Si están en la raíz, esto no hará daño.
+          cd $CM_BUILD_DIR 
+          
+          # Forzamos los permisos del gradlew
+          chmod +x gradlew || true
+          
+          # Corrección del comando SED para que no falle en Codemagic
+          sed -i '' "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" app/src/main/java/com/galaxy/dspot/SpotifyManager.kt
+          
+          # Ejecutamos la compilación
           ./gradlew assembleDebug
     artifacts:
       - app/build/outputs/apk/debug/*.apk
-      
