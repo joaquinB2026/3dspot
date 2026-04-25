@@ -253,7 +253,9 @@ class MainActivity : AppCompatActivity() {
                                 val name = track.optString("name")
                                 val artist = track.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: ""
                                 val uri = track.optString("uri")
-                                resultsLayout.addView(TextView(this).apply {
+                                
+                                // ACÁ ESTÁ LA CORRECCIÓN: this@MainActivity en lugar de this
+                                resultsLayout.addView(TextView(this@MainActivity).apply {
                                     text = "▶ $name\n$artist"
                                     setTextColor(0xFFFFFFFF.toInt()); textSize = 12f
                                     setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6))
