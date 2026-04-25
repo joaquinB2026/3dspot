@@ -1,1 +1,3 @@
-
+-keep class com.spotify.** { *; }
+-keep class com.galaxy.dspot.** { *; }
+-dontwarn com.spotify.**
