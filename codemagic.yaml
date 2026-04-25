@@ -8,17 +8,30 @@ workflows:
     scripts:
       - name: Build APK
         script: |
-          # 1. Buscamos dónde quedó el archivo build.gradle de la raíz
-          # y nos movemos ahí para que las rutas sean relativas a él.
-          MAIN_DIR=$(find . -name "build.gradle" -not -path "*/app/*" -exec dirname {} + | head -n 1)
-          cd "$MAIN_DIR"
+          # 1. Diagnóstico: Listamos todo para ver dónde estamos
+          echo "--- Estructura de archivos actual ---"
+          ls -R
           
-          # 2. Corregimos permisos y placeholders usando rutas relativas
+          # 2. Buscamos el archivo gradlew de forma recursiva y entramos a su carpeta
+          GRADLEW_PATH=$(find . -name "gradlew" | head -n 1)
+          if [ -z "$GRADLEW_PATH" ]; then
+            echo "ERROR: No se encontró el archivo gradlew en ningún lado."
+            exit 1
+          fi
+          
+          cd "$(dirname "$GRADLEW_PATH")"
+          echo "Cambiando al directorio: $(pwd)"
+          
+          # 3. Permisos y reemplazo de ID de Spotify
           chmod +x gradlew
-          sed -i '' "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" app/src/main/java/com/galaxy/dspot/SpotifyManager.kt
           
-          # 3. Compilamos
+          # Buscamos el archivo SpotifyManager.kt para no errar con la ruta
+          SPOTIFY_FILE=$(find . -name "SpotifyManager.kt" | head -n 1)
+          if [ ! -z "$SPOTIFY_FILE" ]; then
+            sed -i '' "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" "$SPOTIFY_FILE"
+          fi
+          
+          # 4. Ejecución del build
           ./gradlew assembleDebug
     artifacts:
       - "**/build/outputs/apk/debug/*.apk"
-      
