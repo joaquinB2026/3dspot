@@ -4,20 +4,18 @@ workflows:
     max_build_duration: 30
     environment:
       groups:
-        - spotify_keys # <--- ESTO CARGA TUS VARIABLES DEL GRUPO
+        - spotify_keys
     scripts:
       - name: Build APK
         script: |
-          # Entramos a la subcarpeta del proyecto
-          cd 3dspot
-          
-          # Damos permisos
+          # Ahora que todo está en la raíz, no hace falta el 'cd'
           chmod +x gradlew
           
-          # Reemplazamos el ID. El '' después de -i es vital para que funcione en los servers de Codemagic
+          # Reemplazamos el ID en la ruta correcta de la carpeta app
           sed -i '' "s/SPOTIFY_CLIENT_ID_PLACEHOLDER/$SPOTIFY_CLIENT_ID/g" app/src/main/java/com/galaxy/dspot/SpotifyManager.kt
           
-          # Compilamos
+          # Compilamos el APK
           ./gradlew assembleDebug
     artifacts:
-      - 3dspot/app/build/outputs/apk/debug/*.apk
+      - app/build/outputs/apk/debug/*.apk
+      
